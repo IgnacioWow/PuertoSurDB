@@ -1,0 +1,5 @@
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans"; }
+.table td, .table th { vertical-align: middle; }
+@media (min-width: 992px) {
+  form .form-control, form .form-select { height: 38px; }
+}
