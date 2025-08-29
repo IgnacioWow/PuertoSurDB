@@ -98,10 +98,26 @@
       <div class="col-lg-8">
         <div class="card shadow-sm">
           <div class="card-body">
-            <div class="d-flex gap-2 mb-3">
-              <input id="q" class="form-control" placeholder="Buscar por nombre o SKU">
-              <button id="btnBuscar" class="btn btn-primary">Buscar</button>
-            </div>
+          <div class="d-flex gap-2 mb-3 align-items-center">
+  <input id="q" class="form-control" placeholder="Buscar por nombre o SKU">
+  <button id="btnBuscar" class="btn btn-primary">Buscar</button>
+
+  <div class="ms-auto d-flex gap-2">
+    <button id="btnCSVProductos" class="btn btn-outline-secondary btn-sm">
+      Descargar productos CSV
+    </button>
+    <button id="btnCSVMovs" class="btn btn-outline-secondary btn-sm">
+      Descargar movimientos CSV
+    </button>
+    <button id="btnCSVStockBajo" class="btn btn-outline-warning btn-sm">
+      Stock bajo CSV
+    </button>
+    <button id="btnCSVValorizado" class="btn btn-outline-success btn-sm">
+  Valorizado CSV
+</button>
+  </div>
+</div>
+
 
             <div class="table-responsive">
               <table class="table table-sm table-hover align-middle">

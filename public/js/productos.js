@@ -160,3 +160,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btnNuevo").addEventListener("click", limpiarForm);
   $("btnEliminar").addEventListener("click", eliminar);
 });
+
+document.getElementById("btnCSVProductos").addEventListener("click", () => {
+  window.open(`${BASE}/api/export/productos_csv.php`, "_blank");
+});
+document.getElementById("btnCSVMovs").addEventListener("click", () => {
+  window.open(`${BASE}/api/export/movimientos_csv.php`, "_blank");
+});
+document.getElementById("btnCSVValorizado").addEventListener("click", () => {
+  window.open(`${BASE}/api/export/valorizado_csv.php`, "_blank");
+});

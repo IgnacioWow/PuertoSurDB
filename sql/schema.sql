@@ -167,3 +167,25 @@ INSERT INTO unidades (nombre,abreviatura) VALUES ('Unidad','ud'),('Caja','cj');
 INSERT INTO categorias (nombre) VALUES ('General');
 INSERT INTO usuarios (nombre,email,pass_hash,rol_id)
 VALUES ('Administrador','admin@example.com','$2y$10$hashDeEjemplo',1); -- reemplaza hash
+
+-- CREATE OR REPLACE VIEW v_stock_bajo AS
+-- SELECT 
+--   p.id, p.sku, p.nombre, 
+--   COALESCE(v.stock,0) AS stock_actual,
+--   p.stock_minimo
+-- FROM productos p
+-- LEFT JOIN v_stock_actual v ON v.producto_id = p.id
+-- WHERE p.activo = 1
+--   AND COALESCE(v.stock,0) <= p.stock_minimo;
+
+-- CREATE OR REPLACE VIEW v_valorizado AS
+-- SELECT 
+--   p.id AS producto_id,
+--   p.sku,
+--   p.nombre,
+--   COALESCE(SUM(m.cantidad),0) AS stock,
+--   ROUND(AVG(NULLIF(m.costo_unitario,0)),4) AS costo_prom,
+--   ROUND(COALESCE(SUM(m.cantidad),0) * AVG(NULLIF(m.costo_unitario,0)),2) AS valor_costo
+-- FROM productos p
+-- LEFT JOIN movimientos m ON m.producto_id = p.id AND m.costo_unitario IS NOT NULL
+-- GROUP BY p.id, p.sku, p.nombre;
