@@ -1,3 +1,12 @@
+                        
+let stateCompras = {
+  page: 1,
+  per_page: 20,
+  q: "",
+  date_from: "",
+  date_to: ""
+};
+
 // guard sesión + navbar
 (async ()=>{
   try{
@@ -109,35 +118,100 @@ async function confirmar(){
 }
 
 // listado de compras
-async function listarCompras(q=""){
-  let url=`${BASE}/api/compras/list.php`;
-  if(q) url+=`?q=${encodeURIComponent(q)}`;
-  const d=await fetchJSON(url);
-  const tb=$("tbodyCompras"); tb.innerHTML="";
-  (d.items||[]).forEach(x=>{
-    const tr=document.createElement("tr");
-    tr.innerHTML=`
+async function listarCompras() {
+  const params = new URLSearchParams({
+    page: String(stateCompras.page),
+    per_page: String(stateCompras.per_page)
+  });
+  if (stateCompras.q) params.set('q', stateCompras.q);
+  if (stateCompras.date_from) params.set('date_from', stateCompras.date_from);
+  if (stateCompras.date_to) params.set('date_to', stateCompras.date_to);
+
+  const d = await fetchJSON(`${BASE}/api/compras/list.php?`+params.toString());
+
+  const tb = $("tbodyCompras"); tb.innerHTML = "";
+  const isAdmin = (window.__ME__?.rol === "admin");
+
+  (d.items || []).forEach(x=>{
+    const anulada = Number(x.anulada) === 1;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
       <td>${x.id}</td>
       <td>${x.fecha}</td>
       <td>${x.proveedor}</td>
-      <td>${x.num_doc??""}</td>
+      <td>${x.num_doc ?? ""}</td>
       <td class="text-end">${fmt(x.subtotal)}</td>
       <td class="text-end">${fmt(x.iva)}</td>
-      <td class="text-end">${fmt(x.total)}</td>`;
+      <td class="text-end">${fmt(x.total)}</td>
+      <td class="text-end"></td>`;
+    const accionesHtml = `
+      <div class="btn-group btn-group-sm">
+        <a class="btn btn-outline-secondary" href="${BASE}/api/compras/print.php?id=${x.id}" target="_blank">Imprimir</a>
+        ${ (isAdmin && !anulada) ? `<button class="btn btn-outline-danger" data-id="${x.id}">Anular</button>` :
+            (anulada ? '<span class="badge bg-secondary align-self-center">Anulada</span>' : '') }
+      </div>`;
+    tr.lastElementChild.innerHTML = accionesHtml;
+
+    const btn = tr.querySelector("button");
+    if (btn) {
+      btn.addEventListener("click", async ()=>{
+        if (!confirm("¿Anular compra y revertir stock?")) return;
+        btn.disabled = true;
+        try {
+          const fd = new FormData(); fd.append("id", x.id);
+          const r = await fetch(`${BASE}/api/compras/void.php`, { method:"POST", body: fd });
+          if (!r.ok) throw new Error(await r.text());
+          await listarCompras();
+        } catch(e) {
+          alert("No se pudo anular: " + (e.message||e));
+          btn.disabled = false;
+        }
+      });
+    }
+
     tb.appendChild(tr);
   });
+
+  // resumen + controles
+  $("resumenLista").textContent = `Mostrando página ${d.page} de ${d.pages} · ${d.total} registros`;
+  $("btnPrev").disabled = (d.page <= 1);
+  $("btnNext").disabled = (d.page >= d.pages);
 }
 
+
+
 document.addEventListener("DOMContentLoaded", async ()=>{
-  await cargarProveedores();
-  await cargarProductos();
-  await listarCompras();
+  // ... lo que ya tienes ...
+  // inicializa select y filtros
+  $("per_page").value = String(stateCompras.per_page);
 
-  // fecha default
-  $("fecha").value = new Date().toISOString().slice(0,16);
-
-  $("btnNueva").addEventListener("click", nuevaCompra);
-  $("btnAddItem").addEventListener("click", addItem);
-  $("btnConfirmar").addEventListener("click", confirmar);
-  $("btnBuscar").addEventListener("click", ()=> listarCompras($("q").value.trim()));
+  $("per_page").addEventListener("change", ()=>{
+  stateCompras.per_page = Number($("per_page").value || 20);
+  stateCompras.page = 1;
+  listarCompras();
 });
+
+
+  $("btnLimpiar").addEventListener("click", ()=>{
+    $("q").value=""; $("f_desde").value=""; $("f_hasta").value="";
+    $("per_page").value = "20";
+    stateCompras = { page:1, per_page:20, q:"", date_from:"", date_to:"" };
+    listarCompras();
+  });
+
+  $("btnPrev").addEventListener("click", ()=>{
+    if (stateCompras.page>1){ stateCompras.page--; listarCompras(); }
+  });
+  $("btnNext").addEventListener("click", ()=>{
+    stateCompras.page++; listarCompras();
+  });
+  ["q","f_desde","f_hasta"].forEach(id=>{
+  const el = $(id);
+  if (el) el.addEventListener("keydown", e=>{
+    if (e.key === "Enter") $("btnBuscar").click();
+  });
+});
+    // carga catálogos
+  await listarCompras();
+});
+

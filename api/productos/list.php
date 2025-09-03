@@ -15,19 +15,32 @@ $params = [];
 // 2. Filtrar según estado
 // ================================
 // Eliminados
+<?php
+// ...
+require_once __DIR__.'/../auth/require_login.php';
+// $_SESSION['user_rol'] disponible
+$isAdmin = (($_SESSION['user_rol'] ?? '') === 'admin');
+
+$q = trim($_GET['q'] ?? '');
+$estado = $_GET['estado'] ?? 'activos';
+$where = []; $params = [];
+
+// Eliminados
 if ($estado === 'eliminados') {
+  if ($isAdmin) {
     $where[] = "p.eliminado_en IS NOT NULL";
+  } else {
+    // fuerza a no ver eliminados si no es admin
+    $where[] = "p.eliminado_en IS NULL AND 1=0";
+  }
+} elseif ($estado === 'todos') {
+  if (!$isAdmin) $where[] = "p.eliminado_en IS NULL";
+} else {
+  $where[] = "p.eliminado_en IS NULL";
+  if ($estado === 'activos')   $where[] = "p.activo = 1";
+  if ($estado === 'inactivos') $where[] = "p.activo = 0";
 }
-// Todos (sin filtro de eliminado)
-elseif ($estado === 'todos') {
-    // no se filtra eliminado_en
-}
-// Activos / Inactivos (sin eliminar)
-else {
-    $where[] = "p.eliminado_en IS NULL";
-    if ($estado === 'activos')   $where[] = "p.activo = 1";
-    if ($estado === 'inactivos') $where[] = "p.activo = 0";
-}
+
 
 // ================================
 // 3. Filtro por texto (búsqueda)
