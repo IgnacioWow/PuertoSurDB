@@ -1,148 +1,86 @@
-// Guard de sesión + pintar usuario/rol
+// Guard de sesión + navbar
 (async ()=>{
   try {
     const r = await fetch("/PuertoSurDB/api/auth/me.php");
     if (!r.ok) throw new Error();
     const me = await r.json();
-    window.__ME__ = me; // {id, nombre, email, rol}
-
-    // Muestra "Nombre (rol)" en el navbar si existe el span
     const el = document.getElementById("userInfo");
     if (el) el.textContent = `${me.nombre} (${me.rol})`;
-  } catch {
-    window.location.href = "login.html";
-  }
+  } catch { location.href = "login.html"; }
 })();
 
-const BASE = "/PuertoSurDB";
-const $ = (id) => document.getElementById(id);
+const BASE="/PuertoSurDB";
+const $=id=>document.getElementById(id);
+async function fetchJSON(u,o){const r=await fetch(u,o); if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json();}
+function setMsg(t,ok=true){const m=$("msg"); if(m){m.textContent=t; m.className=`mt-3 small ${ok?'text-success':'text-danger'}`;}}
 
-const TIPO_ENTRADA = new Set(["COMPRA","AJUSTE_POS","DEV_VENTA"]);
-const TIPO_SALIDA  = new Set(["VENTA","AJUSTE_NEG","DEV_COMPRA"]);
+let modal, form;
 
-async function fetchJSON(url, opts) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
+// Cargar productos en select
 async function cargarProductos() {
-  const data = await fetchJSON(`${BASE}/api/productos/list.php?limit=500&offset=0`);
-  const sel = $("producto_id");
-  sel.innerHTML = "";
-  (data.items || []).forEach(p => {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = `${p.sku} — ${p.nombre}`;
-    opt.dataset.stock = p.stock ?? 0;
-    sel.appendChild(opt);
+  const data = await fetchJSON(`${BASE}/api/productos/list.php?estado=activos`);
+  const sel = $("producto_id"); sel.innerHTML="";
+  (data.items||[]).forEach(p=>{
+    const o=document.createElement("option");
+    o.value=p.id; o.textContent=`${p.sku} — ${p.nombre}`;
+    sel.appendChild(o);
   });
-  actualizarStockInfo();
-  cargarMovimientosProducto();
 }
 
-function actualizarStockInfo() {
-  const sel = $("producto_id");
-  const stock = sel.options[sel.selectedIndex]?.dataset.stock ?? "0";
-  $("stockInfo").textContent = `Stock actual: ${stock}`;
-}
-
-function toggleCamposMonetarios() {
-  const t = $("tipo").value;
-  // entradas: costo requerido, salidas: precio requerido
-  $("grpCosto").style.display  = TIPO_ENTRADA.has(t) ? "" : "none";
-  $("grpPrecio").style.display = TIPO_SALIDA.has(t)  ? "" : "none";
-}
-
-async function cargarMovimientosProducto() {
-  const pid = $("producto_id").value;
-  if (!pid) return;
-  const rows = await fetchJSON(`${BASE}/api/movimientos/list.php?producto_id=${pid}`);
-  const tbody = $("tbodyMovs");
-  tbody.innerHTML = "";
-
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-muted">Sin movimientos.</td></tr>`;
-    return;
-  }
-
-  rows.forEach(m => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${m.fecha?.replace("T"," ").slice(0,19) ?? ""}</td>
+// Listado
+async function listar(q="") {
+  let url = `${BASE}/api/movimientos/list.php`;
+  if(q) url += `?q=${encodeURIComponent(q)}`;
+  const data = await fetchJSON(url);
+  const tbody = $("tbody"); tbody.innerHTML="";
+  (data.items||[]).forEach(m=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td>${m.fecha}</td>
+      <td>${m.sku}</td>
+      <td>${m.nombre}</td>
       <td>${m.tipo}</td>
       <td class="text-end">${m.cantidad}</td>
-      <td class="text-end">${m.costo_unitario!=null ? Number(m.costo_unitario).toLocaleString('es-CL') : "-"}</td>
-      <td class="text-end">${m.precio_unitario!=null ? Number(m.precio_unitario).toLocaleString('es-CL') : "-"}</td>
-    `;
+      <td class="text-end">${m.costo_unitario??""}</td>
+      <td class="text-end">${m.precio_unitario??""}</td>
+      <td>${m.referencia??""}</td>`;
     tbody.appendChild(tr);
   });
 }
 
-async function enviarMovimiento(e) {
+// Submit modal
+async function onSubmit(e){
   e.preventDefault();
-  $("msg").textContent = "";
-  const pid = Number($("producto_id").value);
-  const tipo = $("tipo").value;
-  const cantidad = Number($("cantidad").value);
-  const costo_unitario  = $("costo_unitario").value ? Number($("costo_unitario").value) : null;
-  const precio_unitario = $("precio_unitario").value ? Number($("precio_unitario").value) : null;
-  const referencia = $("referencia").value.trim();
-  const nota = $("nota").value.trim();
-
-  // Validación mínima
-  if (!pid || !tipo || !cantidad || cantidad <= 0) {
-    $("msg").textContent = "Completa producto, tipo y cantidad (>0).";
-    $("msg").className = "mt-3 small text-danger";
-    return;
-  }
-  if (TIPO_ENTRADA.has(tipo) && (costo_unitario==null || costo_unitario<0)) {
-    $("msg").textContent = "costo_unitario es requerido para entradas.";
-    $("msg").className = "mt-3 small text-danger";
-    return;
-  }
-  if (TIPO_SALIDA.has(tipo) && (precio_unitario==null || precio_unitario<0)) {
-    $("msg").textContent = "precio_unitario es requerido para salidas.";
-    $("msg").className = "mt-3 small text-danger";
-    return;
-  }
-
-  // POST
-  try {
-    const body = {
-      producto_id: pid, tipo, cantidad,
-      costo_unitario, precio_unitario,
-      referencia: referencia || undefined,
-      nota: nota || undefined
-    };
-
-    const resp = await fetchJSON(`${BASE}/api/movimientos/create.php`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body)
+  const payload = {
+    producto_id: Number($("producto_id").value),
+    tipo: $("tipo").value,
+    cantidad: Number($("cantidad").value),
+    costo_unitario: $("costo_unitario").value? Number($("costo_unitario").value): null,
+    precio_unitario: $("precio_unitario").value? Number($("precio_unitario").value): null,
+    referencia: $("referencia").value.trim(),
+    nota: $("nota").value.trim()
+  };
+  try{
+    await fetchJSON(`${BASE}/api/movimientos/create.php`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
     });
-
-    $("msg").textContent = `OK: mov #${resp.movimiento_id}, stock nuevo ${resp.stock_nuevo}`;
-    $("msg").className = "mt-3 small text-success";
-
-    // refrescar stock en combo y lista
-    await cargarProductos(); // repuebla con stock actualizado
-    $("producto_id").value = String(pid); // mantiene selección
-    actualizarStockInfo();
-    await cargarMovimientosProducto();
-
-    $("formMov").reset();
-    toggleCamposMonetarios();
-  } catch (err) {
-    $("msg").textContent = "Error al registrar movimiento (revisa stock o datos).";
-    $("msg").className = "mt-3 small text-danger";
+    setMsg("Movimiento registrado.");
+    modal.hide();
+    await listar($("q").value.trim());
+  }catch(e){
+    setMsg("Error al registrar movimiento.", false);
   }
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", async ()=>{
+  modal = new bootstrap.Modal(document.getElementById("modalMov"));
+  form = $("formMov"); form.addEventListener("submit", onSubmit);
+
   await cargarProductos();
-  toggleCamposMonetarios();
-  $("producto_id").addEventListener("change", () => { actualizarStockInfo(); cargarMovimientosProducto(); });
-  $("tipo").addEventListener("change", toggleCamposMonetarios);
-  $("formMov").addEventListener("submit", enviarMovimiento);
+  await listar();
+
+  $("btnBuscar").addEventListener("click", ()=> listar($("q").value.trim()));
+  $("btnNuevoMov").addEventListener("click", ()=> { $("formMov").reset(); setMsg(""); modal.show(); });
 });

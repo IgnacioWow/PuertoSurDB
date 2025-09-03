@@ -1,38 +1,75 @@
 <?php
-require_once __DIR__ . '/../config/db.php';
-require_once __DIR__ . '/../_auth.php';
-require_login(); // cualquier rol autenticado
-
-// PuertoSurDB/api/productos/list.php
+header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/db.php';
 
-$q = isset($_GET['q']) ? trim($_GET['q']) : '';
-$limit = max(1, (int)($_GET['limit'] ?? 20));
-$offset = max(0, (int)($_GET['offset'] ?? 0));
+// ================================
+// 1. Capturar parámetros GET
+// ================================
+$q = trim($_GET['q'] ?? '');           // búsqueda por nombre o SKU
+$estado = $_GET['estado'] ?? 'activos'; // activos|inactivos|eliminados|todos
 
-$sql = "SELECT p.id, p.sku, p.nombre, c.nombre AS categoria,
-        COALESCE(v.stock,0) AS stock, p.precio_venta
-        FROM productos p
-        LEFT JOIN categorias c ON c.id = p.categoria_id
-        LEFT JOIN v_stock_actual v ON v.producto_id = p.id
-        WHERE p.activo = 1";
+$where = [];
 $params = [];
 
-if ($q !== '') {
-  $sql .= " AND (p.nombre LIKE :q OR p.sku LIKE :q)";
-  $params[':q'] = "%$q%";
+// ================================
+// 2. Filtrar según estado
+// ================================
+// Eliminados
+if ($estado === 'eliminados') {
+    $where[] = "p.eliminado_en IS NOT NULL";
+}
+// Todos (sin filtro de eliminado)
+elseif ($estado === 'todos') {
+    // no se filtra eliminado_en
+}
+// Activos / Inactivos (sin eliminar)
+else {
+    $where[] = "p.eliminado_en IS NULL";
+    if ($estado === 'activos')   $where[] = "p.activo = 1";
+    if ($estado === 'inactivos') $where[] = "p.activo = 0";
 }
 
-$sql .= " ORDER BY p.nombre ASC LIMIT :limit OFFSET :offset";
+// ================================
+// 3. Filtro por texto (búsqueda)
+// ================================
+if ($q !== '') {
+    $where[] = "(p.sku LIKE ? OR p.nombre LIKE ?)";
+    $like = "%$q%";
+    $params[] = $like;
+    $params[] = $like;
+}
 
-$stmt = $pdo->prepare($sql);
-foreach ($params as $k => $v) $stmt->bindValue($k, $v, PDO::PARAM_STR);
-$stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-$stmt->execute();
+// ================================
+// 4. Query SQL
+// ================================
+$sql = "SELECT 
+          p.id, 
+          p.sku, 
+          p.nombre, 
+          p.precio_venta, 
+          p.activo, 
+          p.eliminado_en,
+          c.nombre AS categoria,
+          COALESCE(v.stock,0) AS stock
+        FROM productos p
+        LEFT JOIN categorias c ON c.id = p.categoria_id
+        LEFT JOIN v_stock_actual v ON v.producto_id = p.id";
 
-echo json_encode([
-  'items' => $stmt->fetchAll(),
-  'limit' => $limit,
-  'offset' => $offset
-], JSON_UNESCAPED_UNICODE);
+// Aplicar los filtros construidos dinámicamente
+if ($where) {
+    $sql .= " WHERE " . implode(" AND ", $where);
+}
+
+$sql .= " ORDER BY p.id DESC";
+
+// ================================
+// 5. Ejecutar consulta
+// ================================
+$st = $pdo->prepare($sql);
+$st->execute($params);
+$items = $st->fetchAll(PDO::FETCH_ASSOC);
+
+// ================================
+// 6. Respuesta JSON
+// ================================
+echo json_encode(['ok' => true, 'items' => $items]);

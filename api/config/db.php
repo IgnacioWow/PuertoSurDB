@@ -22,3 +22,4 @@ try {
   echo json_encode(['error' => 'DB connection failed', 'detail' => $e->getMessage()]);
   exit;
 }
+$dsn = "mysql:host=127.0.0.1;dbname=tienda_stock;charset=utf8mb4";

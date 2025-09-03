@@ -1,25 +1,25 @@
 <?php
-require_once __DIR__ . '/../config/db.php';
-require_once __DIR__ . '/../_auth.php';
-require_login(); // cualquier rol autenticado
+header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__.'/../config/db.php';
 
-// PuertoSurDB/api/movimientos/list.php
-require_once __DIR__ . '/../config/db.php';
+$q = trim($_GET['q'] ?? '');
+$lim = max(1, min(200, (int)($_GET['lim'] ?? 50)));
 
-$producto_id = isset($_GET['producto_id']) ? (int)$_GET['producto_id'] : 0;
-
-$sql = "SELECT id, producto_id, fecha, tipo, cantidad, costo_unitario, precio_unitario, referencia, nota
-        FROM movimientos";
+$where = [];
 $params = [];
 
-if ($producto_id > 0) {
-  $sql .= " WHERE producto_id = :pid";
-  $params[':pid'] = $producto_id;
+if ($q!=='') {
+  $where[] = "(p.sku LIKE ? OR p.nombre LIKE ? OR m.referencia LIKE ?)";
+  $params[] = "%$q%"; $params[] = "%$q%"; $params[] = "%$q%";
 }
-$sql .= " ORDER BY fecha DESC, id DESC LIMIT 100";
 
-$stmt = $pdo->prepare($sql);
-foreach ($params as $k=>$v) $stmt->bindValue($k, $v, PDO::PARAM_INT);
-$stmt->execute();
+$sql = "SELECT m.id, m.fecha, m.tipo, m.cantidad, m.costo_unitario, m.precio_unitario, m.referencia, m.nota,
+               p.id AS producto_id, p.sku, p.nombre
+        FROM movimientos m
+        JOIN productos p ON p.id = m.producto_id";
+if ($where) $sql .= " WHERE ".implode(" AND ", $where);
+$sql .= " ORDER BY m.fecha DESC, m.id DESC LIMIT $lim";
 
-echo json_encode($stmt->fetchAll(), JSON_UNESCAPED_UNICODE);
+$st = $pdo->prepare($sql);
+$st->execute($params);
+echo json_encode(['ok'=>true,'items'=>$st->fetchAll(PDO::FETCH_ASSOC)]);
