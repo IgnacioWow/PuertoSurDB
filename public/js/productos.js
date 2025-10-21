@@ -320,4 +320,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       setMsg("Eliminado lógicamente.");
     });
   }
+  // Ocultar opción "Eliminados" si no es admin
+  const selEstado = document.getElementById("f_estado");
+  if (selEstado && window.__ME__?.rol !== 'admin') {
+    [...selEstado.options].forEach(opt => {
+      if (opt.value === 'eliminados' || opt.value === 'todos') opt.remove(); // si no queremos “todos”
+    });
+  }
 });
+

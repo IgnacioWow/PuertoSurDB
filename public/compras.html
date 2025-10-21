@@ -12,19 +12,45 @@
 
 <body class="bg-light">
   <!-- ========== NAVBAR (identidad + navegación rápida) ========== -->
-  <nav class="navbar navbar-dark bg-dark mb-4">
-    <div class="container">
-      <a class="navbar-brand" href="index.html">PuertoSurDB</a>
-      <span class="navbar-text small ms-3">Compras</span>
-      <span id="userInfo" class="navbar-text small ms-3"></span>
-      <div class="ms-auto">
-        <a class="btn btn-sm btn-outline-light" href="productos.html">Productos</a>
-        <a class="btn btn-sm btn-outline-light" href="movimientos.html">Movimientos</a>
-      </div>
-    </div>
-  </nav>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 shadow-sm">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="index.html">PuertoSurDB</a>
 
-  <!-- ========== CONTENIDO PRINCIPAL ========== -->
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="mainNavbar">
+      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <li class="nav-item">
+          <a class="nav-link" href="index.html">Inventario</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="productos.html">Productos</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link active" href="compras.html">Compras</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="ventas.html">Ventas</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="movimientos.html">Movimientos</a>
+        </li>
+      </ul>
+
+      <ul class="navbar-nav">
+        <li class="nav-item">
+          <span id="userInfo" class="navbar-text me-3">Cargando...</span>
+        </li>
+        <li class="nav-item">
+          <button id="logoutBtn" class="btn btn-sm btn-outline-light">Salir</button>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
   <main class="container">
     <div class="row g-3">
       <!-- ====== COLUMNA IZQUIERDA: CABECERA DE COMPRA ====== -->
@@ -175,6 +201,7 @@
   </main>
 
   <!-- ========== SCRIPTS ========== -->
+  <script src="js/app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <!-- Lógica de la pantalla (crea compra, agrega ítems, confirma, lista, anula) -->
   <script src="js/compras.js"></script>

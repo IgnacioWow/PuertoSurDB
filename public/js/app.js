@@ -1,43 +1,36 @@
-// Guard de sesión
-(async ()=>{
-  try {
-    const r = await fetch("/PuertoSurDB/api/auth/me.php");
-    if (!r.ok) throw new Error();
-    const me = await r.json();
-    window.__ME__ = me; // {id, nombre, email, rol}
-  } catch {
-    window.location.href = "login.html";
-  }
-})();
+// public/js/app.js
 
-const BASE = "/PuertoSurDB";
+document.addEventListener('DOMContentLoaded', () => {
+    
+    async function checkSession() {
+        try {
+            const response = await fetch("/PuertoSurDB/api/auth/me.php");
+            if (!response.ok) {
+                throw new Error('Sesión no válida');
+            }
+            const me = await response.json();
+            window.__ME__ = me;
+            const userInfoEl = document.getElementById("userInfo");
+            if (userInfoEl) {
+                userInfoEl.textContent = `${me.nombre} (${me.rol})`;
+            }
+        } catch (error) {
+            location.href = "login.html";
+        }
+    }
 
-async function cargarProductos(q = "") {
-  const url = q
-    ? `${BASE}/api/productos/list.php?q=${encodeURIComponent(q)}`
-    : `${BASE}/api/productos/list.php`;
+    async function logout() {
+        await fetch("/PuertoSurDB/api/auth/logout.php");
+        window.__ME__ = null; 
+        location.href = "login.html";
+    }
 
-  const res = await fetch(url);
-  const data = await res.json();
-  const tbody = document.getElementById("tbody");
-  tbody.innerHTML = "";
+    
+    const logoutButton = document.getElementById('logoutBtn');
+    if (logoutButton) {
+        logoutButton.addEventListener('click', logout);
+    }
 
-  (data.items || []).forEach(row => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${row.sku}</td>
-      <td>${row.nombre}</td>
-      <td>${row.categoria ?? "-"}</td>
-      <td class="text-end">${row.stock ?? 0}</td>
-      <td class="text-end">$ ${Number(row.precio_venta ?? 0).toLocaleString('es-CL')}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-document.getElementById("btnBuscar").addEventListener("click", () => {
-  const q = document.getElementById("buscador").value.trim();
-  cargarProductos(q);
+    
+    checkSession();
 });
-
-document.addEventListener("DOMContentLoaded", () => cargarProductos());
