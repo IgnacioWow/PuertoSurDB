@@ -1,217 +1,300 @@
-                        
-let stateCompras = {
-  page: 1,
-  per_page: 20,
-  q: "",
-  date_from: "",
-  date_to: ""
-};
+// =====================================================
+// 1. CONFIGURACIÓN Y VARIABLES GLOBALES
+// =====================================================
+const BASE = "/PuertoSurDB";
+const $ = (id) => document.getElementById(id);
 
-// guard sesión + navbar
-(async ()=>{
-  try{
-    const r=await fetch("/PuertoSurDB/api/auth/me.php");
-    if(!r.ok) throw 0;
-    const me=await r.json();
-    document.getElementById("userInfo").textContent=`${me.nombre} (${me.rol})`;
-  }catch{ location.href="login.html"; }
-})();
+// Estado del "Carrito" de compra
+let carrito = []; 
+let page = 1; // Paginación del historial
 
-const BASE="/PuertoSurDB";
-const $=id=>document.getElementById(id);
-async function fetchJSON(u,o){const r=await fetch(u,o); if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json();}
-function fmt(n){return Number(n||0).toLocaleString('es-CL',{style:'currency',currency:'CLP',maximumFractionDigits:0});}
-function setMsg(t,ok=true){const m=$("msg");m.textContent=t;m.className=`mt-3 small ${ok?'text-success':'text-danger'}`;}
-
-let compraId=null;
-
-// cargar catálogos
-async function cargarProveedores(){
-  const arr=await fetchJSON(`${BASE}/api/proveedores/list.php`);
-  const sel=$("proveedor_id"); sel.innerHTML="";
-  arr.forEach(x=>{ const o=document.createElement("option"); o.value=x.id; o.textContent=x.nombre; sel.appendChild(o); });
-}
-async function cargarProductos(){
-  const data=await fetchJSON(`${BASE}/api/productos/list.php?estado=activos`);
-  const sel=$("producto_id"); sel.innerHTML="";
-  (data.items||[]).forEach(p=>{ const o=document.createElement("option"); o.value=p.id; o.textContent=`${p.sku} — ${p.nombre}`; sel.appendChild(o); });
+// Helper para Fetch
+async function fetchJSON(url, opts) {
+    const r = await fetch(url, opts);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
 }
 
-// crear cabecera
-async function nuevaCompra(){
-  const proveedor_id=Number($("proveedor_id").value);
-  const fecha=$("fecha").value || new Date().toISOString().slice(0,16).replace('T',' ');
-  const num_doc=$("num_doc").value.trim();
-  const r=await fetchJSON(`${BASE}/api/compras/create.php`,{
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({proveedor_id,fecha,num_doc})
-  });
-  compraId=r.id;
-  $("btnConfirmar").disabled=false;
-  setMsg(`Compra #${compraId} creada. Agrega ítems y confirma.`);
-  await refrescar();
+// Helper para formatear dinero (CLP)
+const fmtMoney = (n) => "$ " + Number(n).toLocaleString("es-CL");
+
+// Mostrar mensajes
+function setMsg(text, ok = true) {
+    const el = $("msg");
+    if(el) {
+        el.textContent = text;
+        el.className = `mt-3 small ${ok ? "text-success" : "text-danger"}`;
+    }
 }
 
-// agregar ítem
-async function addItem(){
-  if(!compraId){ setMsg("Primero crea la compra.",false); return; }
-  const payload={
-    compra_id:compraId,
-    producto_id:Number($("producto_id").value),
-    cantidad:Number($("cantidad").value),
-    costo_unitario:Number($("costo_unitario").value)
-  };
-  await fetchJSON(`${BASE}/api/compras/add_item.php`,{
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify(payload)
-  });
-  await refrescar();
+// =====================================================
+// 2. CARGAR DATOS INICIALES (Proveedores y Productos)
+// =====================================================
+async function cargarDatosIniciales() {
+    try {
+        // 1. Cargar Proveedores
+        // NOTA: Asumo que tienes api/proveedores/list.php. Si no, avísame.
+        const proveedores = await fetchJSON(`${BASE}/api/proveedores/list.php`);
+        const selProv = $("proveedor_id");
+        selProv.innerHTML = '<option value="">-- Seleccione Proveedor --</option>';
+        proveedores.forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p.id;
+            opt.textContent = p.nombre; // Asumo que la tabla tiene campo 'nombre'
+            selProv.appendChild(opt);
+        });
+
+        // 2. Cargar Productos (para el select del detalle)
+        // Traemos solo los activos para comprar
+        const resProd = await fetchJSON(`${BASE}/api/productos/list.php?estado=activos`);
+        const selProd = $("producto_id");
+        selProd.innerHTML = '<option value="">-- Buscar Producto --</option>';
+        
+        (resProd.items || []).forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p.id;
+            // Guardamos el costo actual en un atributo para sugerirlo
+            opt.dataset.costo = p.precio_compra || 0; 
+            opt.textContent = `${p.sku} - ${p.nombre}`;
+            selProd.appendChild(opt);
+        });
+
+        // Sugerir fecha de hoy
+        $("fecha").value = new Date().toISOString().slice(0, 16); // Formato datetime-local
+
+    } catch (err) {
+        console.error("Error cargando listas", err);
+        setMsg("Error cargando proveedores o productos. Revisa la consola.", false);
+    }
 }
 
-// quitar ítem
-async function removeItem(pid){
-  if(!compraId) return;
-  await fetchJSON(`${BASE}/api/compras/remove_item.php?compra_id=${compraId}&producto_id=${pid}`);
-  await refrescar();
-}
+// Al seleccionar un producto, sugerir su último costo
+$("producto_id").addEventListener("change", (e) => {
+    const opt = e.target.options[e.target.selectedIndex];
+    const costo = opt.dataset.costo || 0;
+    $("costo_unitario").value = costo;
+    $("cantidad").focus(); // Saltar a cantidad para agilizar
+});
 
-// obtener detalle + totales
-async function refrescar(){
-  if(!compraId) return;
-  const d=await fetchJSON(`${BASE}/api/compras/get.php?id=${compraId}`);
-  // items
-  const tbody=$("tbody"); tbody.innerHTML="";
-  (d.items||[]).forEach(it=>{
-    const tr=document.createElement("tr");
-    const imp=it.cantidad*it.costo_unitario;
-    tr.innerHTML=`
-      <td>${it.sku}</td>
-      <td>${it.nombre}</td>
-      <td class="text-end">${it.cantidad}</td>
-      <td class="text-end">${it.costo_unitario}</td>
-      <td class="text-end">${imp.toFixed(2)}</td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-outline-danger">Quitar</button>
-      </td>`;
-    tr.querySelector("button").addEventListener("click",()=>removeItem(it.producto_id));
-    tbody.appendChild(tr);
-  });
-  // totales
-  $("t_subtotal").textContent=fmt(d.subtotal);
-  $("t_iva").textContent=fmt(d.iva);
-  $("t_total").textContent=fmt(d.total);
-}
+// =====================================================
+// 3. LÓGICA DEL CARRITO (Agregar/Quitar Ítems)
+// =====================================================
 
-// confirmar (graba totales y genera movimientos)
-async function confirmar(){
-  if(!compraId){ setMsg("No hay compra.",false); return; }
-  const fd=new FormData(); fd.append('id',compraId);
-  const r=await fetchJSON(`${BASE}/api/compras/confirm.php`,{ method:"POST", body:fd });
-  setMsg(`Compra confirmada. Total: ${fmt(r.total)}`);
-  await listarCompras();
-  compraId=null;
-  $("btnConfirmar").disabled=true;
-  $("tbody").innerHTML="";
-  $("t_subtotal").textContent=fmt(0);
-  $("t_iva").textContent=fmt(0);
-  $("t_total").textContent=fmt(0);
-}
+// Agregar ítem al array 'carrito'
+$("btnAddItem").addEventListener("click", () => {
+    const prodSelect = $("producto_id");
+    const prodId = prodSelect.value;
+    const prodTexto = prodSelect.options[prodSelect.selectedIndex]?.text;
+    
+    const cant = Number($("cantidad").value);
+    const costo = Number($("costo_unitario").value);
 
-// listado de compras
-async function listarCompras() {
-  const params = new URLSearchParams({
-    page: String(stateCompras.page),
-    per_page: String(stateCompras.per_page)
-  });
-  if (stateCompras.q) params.set('q', stateCompras.q);
-  if (stateCompras.date_from) params.set('date_from', stateCompras.date_from);
-  if (stateCompras.date_to) params.set('date_to', stateCompras.date_to);
-
-  const d = await fetchJSON(`${BASE}/api/compras/list.php?`+params.toString());
-
-  const tb = $("tbodyCompras"); tb.innerHTML = "";
-  const isAdmin = (window.__ME__?.rol === "admin");
-
-  (d.items || []).forEach(x=>{
-    const anulada = Number(x.anulada) === 1;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${x.id}</td>
-      <td>${x.fecha}</td>
-      <td>${x.proveedor}</td>
-      <td>${x.num_doc ?? ""}</td>
-      <td class="text-end">${fmt(x.subtotal)}</td>
-      <td class="text-end">${fmt(x.iva)}</td>
-      <td class="text-end">${fmt(x.total)}</td>
-      <td class="text-end"></td>`;
-    const accionesHtml = `
-      <div class="btn-group btn-group-sm">
-        <a class="btn btn-outline-secondary" href="${BASE}/api/compras/print.php?id=${x.id}" target="_blank">Imprimir</a>
-        ${ (isAdmin && !anulada) ? `<button class="btn btn-outline-danger" data-id="${x.id}">Anular</button>` :
-            (anulada ? '<span class="badge bg-secondary align-self-center">Anulada</span>' : '') }
-      </div>`;
-    tr.lastElementChild.innerHTML = accionesHtml;
-
-    const btn = tr.querySelector("button");
-    if (btn) {
-      btn.addEventListener("click", async ()=>{
-        if (!confirm("¿Anular compra y revertir stock?")) return;
-        btn.disabled = true;
-        try {
-          const fd = new FormData(); fd.append("id", x.id);
-          const r = await fetch(`${BASE}/api/compras/void.php`, { method:"POST", body: fd });
-          if (!r.ok) throw new Error(await r.text());
-          await listarCompras();
-        } catch(e) {
-          alert("No se pudo anular: " + (e.message||e));
-          btn.disabled = false;
-        }
-      });
+    if (!prodId || cant <= 0 || costo < 0) {
+        alert("Selecciona un producto, cantidad > 0 y costo válido.");
+        return;
     }
 
-    tb.appendChild(tr);
-  });
+    // Verificar si ya está en el carrito para sumar cantidad (opcional)
+    const existe = carrito.find(i => i.producto_id === prodId);
+    if (existe) {
+        existe.cantidad += cant;
+        existe.costo_unitario = costo; // Actualizamos costo al último ingresado
+    } else {
+        carrito.push({
+            producto_id: prodId,
+            nombre: prodTexto,
+            cantidad: cant,
+            costo_unitario: costo
+        });
+    }
 
-  // resumen + controles
-  $("resumenLista").textContent = `Mostrando página ${d.page} de ${d.pages} · ${d.total} registros`;
-  $("btnPrev").disabled = (d.page <= 1);
-  $("btnNext").disabled = (d.page >= d.pages);
+    // Limpiar inputs de detalle
+    $("cantidad").value = 1;
+    $("costo_unitario").value = 0;
+    prodSelect.value = "";
+    prodSelect.focus(); // Volver al select para seguir agregando rápido
+
+    renderCarrito();
+});
+
+// Renderizar la tabla del detalle y calcular totales
+function renderCarrito() {
+    const tbody = $("tbody");
+    tbody.innerHTML = "";
+
+    let subtotalGlobal = 0;
+
+    carrito.forEach((item, index) => {
+        const importe = item.cantidad * item.costo_unitario;
+        subtotalGlobal += importe;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><small>${item.nombre.split('-')[0]}</small></td> <td>${item.nombre.split('-')[1] || item.nombre}</td>
+            <td class="text-end">${item.cantidad}</td>
+            <td class="text-end">${fmtMoney(item.costo_unitario)}</td>
+            <td class="text-end fw-bold">${fmtMoney(importe)}</td>
+            <td class="text-end">
+                <button class="btn btn-sm btn-outline-danger py-0" onclick="quitarItem(${index})">×</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Cálculos finales (Neto + IVA)
+    // Asumiendo que ingresas valores NETOS. Si son brutos, el cálculo cambia.
+    // Chile: Subtotal (Neto) -> IVA (19%) -> Total
+    const iva = Math.round(subtotalGlobal * 0.19);
+    const total = subtotalGlobal + iva;
+
+    $("t_subtotal").textContent = fmtMoney(subtotalGlobal);
+    $("t_iva").textContent = fmtMoney(iva);
+    $("t_total").textContent = fmtMoney(total);
+
+    // Habilitar botón confirmar si hay ítems
+    $("btnConfirmar").disabled = carrito.length === 0;
 }
 
+// Función global para poder llamarla desde el HTML onclick
+window.quitarItem = (index) => {
+    carrito.splice(index, 1);
+    renderCarrito();
+};
 
-
-document.addEventListener("DOMContentLoaded", async ()=>{
-  // ... lo que ya tienes ...
-  // inicializa select y filtros
-  $("per_page").value = String(stateCompras.per_page);
-
-  $("per_page").addEventListener("change", ()=>{
-  stateCompras.per_page = Number($("per_page").value || 20);
-  stateCompras.page = 1;
-  listarCompras();
+// Resetear formulario para nueva compra
+$("btnNueva").addEventListener("click", () => {
+    carrito = [];
+    renderCarrito();
+    $("proveedor_id").value = "";
+    $("num_doc").value = "";
+    $("fecha").value = new Date().toISOString().slice(0, 16);
+    setMsg("");
+    $("proveedor_id").focus();
 });
 
+// =====================================================
+// 4. GUARDAR COMPRA (CONFIRMAR)
+// =====================================================
+$("btnConfirmar").addEventListener("click", async () => {
+    if (carrito.length === 0) return;
+    if (!confirm("¿Confirmar ingreso de stock?")) return;
 
-  $("btnLimpiar").addEventListener("click", ()=>{
-    $("q").value=""; $("f_desde").value=""; $("f_hasta").value="";
-    $("per_page").value = "20";
-    stateCompras = { page:1, per_page:20, q:"", date_from:"", date_to:"" };
+    const payload = {
+        proveedor_id: $("proveedor_id").value,
+        fecha: $("fecha").value,
+        numero_documento: $("num_doc").value.trim(),
+        items: carrito // Enviamos el array completo
+    };
+
+    if (!payload.proveedor_id || !payload.numero_documento) {
+        return alert("Falta el Proveedor o el Número de Documento.");
+    }
+
+    try {
+        // Enviamos a la API
+        await fetchJSON(`${BASE}/api/compras/create.php`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+
+        setMsg("Compra guardada y stock actualizado.", true);
+        
+        // Limpiar todo
+        carrito = [];
+        renderCarrito();
+        $("num_doc").value = "";
+        
+        // Recargar historial
+        listarCompras();
+
+    } catch (error) {
+        console.error(error);
+        setMsg("Error al guardar la compra.", false);
+    }
+});
+
+// =====================================================
+// 5. HISTORIAL DE COMPRAS (PAGINACIÓN Y LISTADO)
+// =====================================================
+async function listarCompras() {
+    const q = $("q").value;
+    const desde = $("f_desde").value;
+    const hasta = $("f_hasta").value;
+    const limit = $("per_page").value;
+
+    const params = new URLSearchParams({
+        page: page,
+        limit: limit,
+        q: q,
+        desde: desde,
+        hasta: hasta
+    });
+
+    try {
+        const data = await fetchJSON(`${BASE}/api/compras/list.php?${params}`);
+        const tbody = $("tbodyCompras");
+        tbody.innerHTML = "";
+
+        (data.items || []).forEach(c => {
+            const tr = document.createElement("tr");
+            // Lógica para pintar rojo si está anulada (si tu backend devuelve estado)
+            if (c.estado === 0) tr.classList.add("text-muted", "text-decoration-line-through");
+
+            tr.innerHTML = `
+                <td>${c.id}</td>
+                <td>${c.fecha.substring(0,16).replace("T", " ")}</td>
+                <td>${c.proveedor_nombre || '-'}</td>
+                <td>${c.numero_documento}</td>
+                <td class="text-end">${fmtMoney(c.subtotal)}</td>
+                <td class="text-end">${fmtMoney(c.impuestos)}</td>
+                <td class="text-end fw-bold">${fmtMoney(c.total)}</td>
+                <td class="text-end">
+                     ${ (c.estado != 0 && window.__ME__?.rol === 'admin') 
+                        ? `<button class="btn btn-sm btn-outline-danger py-0" onclick="anularCompra(${c.id})">Anular</button>` 
+                        : '' }
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        // Info de paginación básica
+        $("resumenLista").textContent = `Pág ${page}`;
+
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+// Eventos de filtros historial
+$("btnBuscar").addEventListener("click", () => { page = 1; listarCompras(); });
+$("btnLimpiar").addEventListener("click", () => { 
+    $("q").value = ""; $("f_desde").value = ""; $("f_hasta").value = ""; 
+    page = 1; listarCompras(); 
+});
+$("btnPrev").addEventListener("click", () => { if(page > 1) { page--; listarCompras(); } });
+$("btnNext").addEventListener("click", () => { page++; listarCompras(); });
+
+// Función para anular (revertir stock)
+window.anularCompra = async (id) => {
+    if(!confirm(`¿Seguro que deseas ANULAR la compra #${id}? Se descontará el stock.`)) return;
+    try {
+        await fetchJSON(`${BASE}/api/compras/void.php`, {
+             method: "POST",
+             headers: {"Content-Type":"application/json"},
+             body: JSON.stringify({id: id})
+        });
+        alert("Compra anulada.");
+        listarCompras();
+    } catch {
+        alert("Error al anular.");
+    }
+};
+
+// =====================================================
+// 6. INICIALIZACIÓN
+// =====================================================
+document.addEventListener("DOMContentLoaded", () => {
+    cargarDatosIniciales();
     listarCompras();
-  });
-
-  $("btnPrev").addEventListener("click", ()=>{
-    if (stateCompras.page>1){ stateCompras.page--; listarCompras(); }
-  });
-  $("btnNext").addEventListener("click", ()=>{
-    stateCompras.page++; listarCompras();
-  });
-  ["q","f_desde","f_hasta"].forEach(id=>{
-  const el = $(id);
-  if (el) el.addEventListener("keydown", e=>{
-    if (e.key === "Enter") $("btnBuscar").click();
-  });
 });
-    // carga catálogos
-  await listarCompras();
-});
-
