@@ -1,24 +1,5 @@
 // =====================================================
-// 1. VERIFICAR SESIÓN Y MOSTRAR USUARIO
-// =====================================================
-(async ()=>{
-  try {
-    const r = await fetch("/PuertoSurDB/api/auth/me.php");
-    if (!r.ok) throw new Error();
-    const me = await r.json();
-    window.__ME__ = me; // Guardamos usuario {id, nombre, email, rol}
-
-    // Mostrar "Nombre (rol)" en el navbar
-    const el = document.getElementById("userInfo");
-    if (el) el.textContent = `${me.nombre} (${me.rol})`;
-  } catch {
-    // Si no está autenticado → redirige al login
-    location.href = "login.html";
-  }
-})();
-
-// =====================================================
-// 2. FUNCIONES AUXILIARES
+// 1. CONSTANTES Y HELPERS
 // =====================================================
 const BASE = "/PuertoSurDB";
 const $ = (id) => document.getElementById(id);
@@ -32,8 +13,11 @@ async function fetchJSON(url, opts) {
 
 // Mostrar mensajes en el formulario lateral
 function setMsg(text, ok = true) {
-  $("msg").textContent = text;
-  $("msg").className = `mt-3 small ${ok ? "text-success" : "text-danger"}`;
+  const el = $("msg");
+  if (el) {
+    el.textContent = text;
+    el.className = `mt-3 small ${ok ? "text-success" : "text-danger"}`;
+  }
 }
 
 // Limpiar el formulario lateral
@@ -50,7 +34,7 @@ function limpiarForm() {
 }
 
 // =====================================================
-// 3. CARGAR CATÁLOGOS (categorías y unidades)
+// 2. CARGAR CATÁLOGOS (categorías y unidades)
 // =====================================================
 async function cargarCatalogos() {
   const [cats, unis] = await Promise.all([
@@ -80,7 +64,7 @@ async function cargarCatalogos() {
 }
 
 // =====================================================
-// 4. LISTAR PRODUCTOS
+// 3. LISTAR PRODUCTOS
 // =====================================================
 async function listar(q = "") {
   const estado = document.getElementById("f_estado")?.value || "activos";
@@ -121,7 +105,7 @@ async function listar(q = "") {
 }
 
 // =====================================================
-// 5. CARGAR PRODUCTO EN FORMULARIO LATERAL
+// 4. CARGAR PRODUCTO EN FORMULARIO LATERAL
 // =====================================================
 async function cargarEnFormulario(id) {
   const p = await fetchJSON(`${BASE}/api/productos/get.php?id=${id}`);
@@ -139,12 +123,37 @@ async function cargarEnFormulario(id) {
 }
 
 // =====================================================
-// 6. GUARDAR PRODUCTO (formulario lateral)
+// 5. GUARDAR PRODUCTO (Lateral y Modal)
 // =====================================================
+// Lógica compartida para guardar (se usa en lateral y modal)
+async function procesarGuardado(payload, esModal = false) {
+    try {
+        let url = payload.id ? `${BASE}/api/productos/update.php` : `${BASE}/api/productos/create.php`;
+        
+        const resp = await fetchJSON(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        });
+
+        if (!esModal) {
+             if (!payload.id) { $("id").value = resp.id; $("btnEliminar").disabled = false; }
+             setMsg(payload.id ? "Actualizado correctamente." : "Creado correctamente.");
+        }
+        return true; // Éxito
+    } catch {
+        if (!esModal) setMsg("Error al guardar (revisa datos/SKU único).", false);
+        else alert("Error al guardar. Revisa que el SKU no esté repetido.");
+        return false; // Fallo
+    }
+}
+
+// Guardar desde Formulario Lateral
 async function guardar(e) {
   e.preventDefault();
   const id = $("id").value.trim();
   const body = {
+    id: id ? Number(id) : null,
     sku: $("sku").value.trim(),
     nombre: $("nombre").value.trim(),
     categoria_id: Number($("categoria_id").value),
@@ -154,31 +163,13 @@ async function guardar(e) {
     stock_minimo: Number($("stock_minimo").value),
     activo: Number($("activo").value)
   };
-
-  try {
-    if (id) {
-      await fetchJSON(`${BASE}/api/productos/update.php`, {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ id: Number(id), ...body })
-      });
-      setMsg("Actualizado correctamente.");
-    } else {
-      const resp = await fetchJSON(`${BASE}/api/productos/create.php`, {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(body)
-      });
-      $("id").value = resp.id;
-      $("btnEliminar").disabled = false;
-      setMsg("Creado correctamente.");
-    }
-    await listar($("q").value.trim());
-  } catch {
-    setMsg("Error al guardar. Revisa datos (SKU único).", false);
-  }
+  
+  const ok = await procesarGuardado(body, false);
+  if(ok) await listar($("q").value.trim());
 }
 
 // =====================================================
-// 7. ELIMINAR (formulario lateral)
+// 6. ELIMINAR (Lógico)
 // =====================================================
 async function eliminar() {
   const id = $("id").value.trim();
@@ -195,7 +186,7 @@ async function eliminar() {
 }
 
 // =====================================================
-// 8. MODAL: CREAR/EDITAR PRODUCTOS
+// 7. MODAL: CREAR/EDITAR Y CONTROL DEL LECTOR
 // =====================================================
 let modal, formModal, modalTitulo;
 
@@ -208,6 +199,9 @@ function openCreateModal() {
   $("m_activo").value = "1";
   $("m_stock_minimo").value = "0";
   modal.show();
+  
+  // FOCO AUTOMÁTICO AL SKU (Retraso para esperar animación)
+  setTimeout(() => $("m_sku").focus(), 500);
 }
 
 // Abrir modal cargando datos (editar)
@@ -228,11 +222,12 @@ async function openEditModal(id) {
   modal.show();
 }
 
-// Guardar desde modal
+// Submit del Modal
 async function onSubmitModal(e) {
   e.preventDefault();
   const id = $("m_id").value.trim();
   const payload = {
+    id: id ? Number(id) : null,
     sku: $("m_sku").value.trim(),
     nombre: $("m_nombre").value.trim(),
     categoria_id: Number($("m_categoria_id").value),
@@ -244,34 +239,38 @@ async function onSubmitModal(e) {
     descripcion: $("m_descripcion").value.trim()
   };
 
-  try {
-    if (id) {
-      await fetchJSON(`${BASE}/api/productos/update.php`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ id: Number(id), ...payload })
-      });
-      setMsg("Actualizado correctamente.");
-    } else {
-      await fetchJSON(`${BASE}/api/productos/create.php`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload)
-      });
-      setMsg("Creado correctamente.");
-    }
-    modal.hide();
-    await listar($("q").value.trim());
-  } catch {
-    setMsg("Error al guardar (revisa datos/SKU único).", false);
+  const ok = await procesarGuardado(payload, true);
+  if (ok) {
+      modal.hide();
+      await listar($("q").value.trim());
   }
+}
+
+// =====================================================
+// 8. CONFIGURACIÓN DEL ESCÁNER (LECTOR DE BARRAS)
+// =====================================================
+// Esta función detecta el "Enter" que envía el lector y salta al siguiente campo
+function setupScanner(inputId, nextInputId) {
+    const input = $(inputId);
+    if (input) {
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault(); // Evita submit del form
+                // Si hay algo escrito, saltamos al nombre
+                if (e.target.value.trim() !== "") {
+                    const next = $(nextInputId);
+                    if (next) next.focus();
+                }
+            }
+        });
+    }
 }
 
 // =====================================================
 // 9. INICIALIZACIÓN DE LA PÁGINA
 // =====================================================
 document.addEventListener("DOMContentLoaded", async () => {
-  // Inicializar modal
+  // Inicializar modal Bootstrap
   const modalEl = document.getElementById("modalProducto");
   if (modalEl) {
     modal = new bootstrap.Modal(modalEl);
@@ -280,52 +279,58 @@ document.addEventListener("DOMContentLoaded", async () => {
     formModal.addEventListener("submit", onSubmitModal);
   }
 
-  // Cargar catálogos y lista inicial
+  // Cargar datos iniciales
   await cargarCatalogos();
   await listar();
 
-  // Eventos del buscador y botones CSV
+  // Eventos Buscador
   $("btnBuscar").addEventListener("click", () => listar($("q").value.trim()));
   $("f_estado").addEventListener("change", () => listar($("q").value.trim()));
 
-  // Eventos del formulario lateral
+  // Eventos Formulario Lateral
   $("formProd").addEventListener("submit", guardar);
-  $("btnNuevo").addEventListener("click", openCreateModal);
   $("btnEliminar").addEventListener("click", eliminar);
 
-  // Botones CSV
-  $("btnCSVProductos").addEventListener("click", () => {
-    window.open(`${BASE}/api/export/productos_csv.php`, "_blank");
-  });
-  $("btnCSVMovs").addEventListener("click", () => {
-    window.open(`${BASE}/api/export/movimientos_csv.php`, "_blank");
-  });
-  $("btnCSVValorizado").addEventListener("click", () => {
-    window.open(`${BASE}/api/export/valorizado_csv.php`, "_blank");
+  // BOTÓN NUEVO: Detecta si es escritorio o móvil para foco o modal
+  $("btnNuevo").addEventListener("click", () => {
+      // Si la pantalla es grande (Desktop), usamos el form lateral
+      if (window.innerWidth >= 992) {
+          limpiarForm();
+          $("sku").focus(); // Foco directo para escanear
+      } else {
+          // Si es móvil, usamos modal
+          openCreateModal();
+      }
   });
 
-  // =====================================================
-  // 10. BOTÓN ELIMINAR EN EL MODAL (SOLO ADMIN)
-  // =====================================================
-  const btnDel = document.getElementById("m_btnEliminar");
-  if (btnDel && window.__ME__?.rol === 'admin') {
-    btnDel.classList.remove('d-none');
-    btnDel.addEventListener('click', async () => {
+  // ACTIVAR ESCÁNER (Para lateral y modal)
+  setupScanner("sku", "nombre");      // Lateral
+  setupScanner("m_sku", "m_nombre");  // Modal
+
+  // Botones CSV
+  $("btnCSVProductos").addEventListener("click", () => window.open(`${BASE}/api/export/productos_csv.php`, "_blank"));
+  $("btnCSVMovs").addEventListener("click", () => window.open(`${BASE}/api/export/movimientos_csv.php`, "_blank"));
+  $("btnCSVValorizado").addEventListener("click", () => window.open(`${BASE}/api/export/valorizado_csv.php`, "_blank"));
+
+  // Botón Eliminar en el Modal (Solo Admin)
+  const btnDelModal = document.getElementById("m_btnEliminar");
+  if (btnDelModal && window.__ME__?.rol === 'admin') {
+    btnDelModal.classList.remove('d-none');
+    btnDelModal.addEventListener('click', async () => {
       const id = $("m_id").value.trim();
-      if (!id) return;
-      if (!confirm("¿Eliminar este producto?")) return;
+      if (!id || !confirm("¿Eliminar este producto?")) return;
       await fetchJSON(`${BASE}/api/productos/delete.php?id=${id}`);
       modal.hide();
       await listar($("q").value.trim());
       setMsg("Eliminado lógicamente.");
     });
   }
-  // Ocultar opción "Eliminados" si no es admin
+  
+  // Filtros Admin
   const selEstado = document.getElementById("f_estado");
   if (selEstado && window.__ME__?.rol !== 'admin') {
     [...selEstado.options].forEach(opt => {
-      if (opt.value === 'eliminados' || opt.value === 'todos') opt.remove(); // si no queremos “todos”
+      if (opt.value === 'eliminados' || opt.value === 'todos') opt.remove();
     });
   }
 });
-
